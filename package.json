@@ -1,0 +1,15 @@
+{
+  "name": "kf-city-runner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multiplayer 2D Side-Runner in einer fiktiven Neon-Innenstadt",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --check server.js && node --check public/app.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "ws": "^8.18.3"
+  }
+}

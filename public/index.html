@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#090b12">
+  <title>KF: City Run — Multiplayer</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;900&family=Inter:wght@400;600;800&display=swap');
+    :root{--acid:#d7ff32;--red:#ff385d;--cyan:#43e5ff;--ink:#07090e;--panel:rgba(9,12,20,.88)}
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent} html,body{margin:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none;background:#060810;color:#fff;font-family:Inter,system-ui,sans-serif;touch-action:none;-webkit-user-select:none;user-select:none}
+    canvas{display:block;width:100%;height:100%;touch-action:none}
+    #game{position:fixed;inset:0}
+    .grain{position:fixed;inset:0;pointer-events:none;opacity:.12;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.45'/%3E%3C/svg%3E")}
+    #login{position:fixed;inset:0;display:grid;place-items:center;background:radial-gradient(circle at 50% 35%,rgba(67,229,255,.12),transparent 35%),linear-gradient(120deg,#05060b,#111528);z-index:10}
+    .login-card{width:min(92vw,530px);padding:42px;border:1px solid #343b4e;background:rgba(8,10,17,.9);box-shadow:22px 22px 0 rgba(215,255,50,.07);position:relative}
+    .stamp{display:inline-block;color:var(--acid);border:1px solid var(--acid);font:700 12px Inter;padding:6px 9px;letter-spacing:2px;transform:rotate(-2deg)}
+    h1{font:900 clamp(58px,12vw,108px)/.78 "Barlow Condensed";letter-spacing:-3px;margin:25px 0 8px;text-transform:uppercase}h1 em{font-style:normal;color:var(--acid)}
+    .sub{color:#aab2c5;margin:0 0 28px;line-height:1.5}
+    .join{display:flex;gap:10px} input,button{border:0;font:800 15px Inter}input{min-width:0;flex:1;padding:17px 18px;color:white;background:#171b28;outline:1px solid #30384e}input:focus{outline-color:var(--cyan)}button{padding:17px 22px;background:var(--acid);color:#111;cursor:pointer;text-transform:uppercase}button:hover{filter:brightness(1.12);transform:translateY(-1px)}
+    .help{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:26px;color:#7e879d;font-size:11px;text-transform:uppercase}.help b{display:block;color:#fff;font-size:13px;margin-bottom:4px}
+    #hud{display:none;position:fixed;inset:0;pointer-events:none}.top{position:absolute;left:22px;right:22px;top:20px;display:flex;justify-content:space-between;align-items:flex-start;gap:14px}.panel{background:var(--panel);border-left:4px solid var(--acid);padding:12px 15px;box-shadow:0 8px 30px #0008;backdrop-filter:blur(8px)}
+    .label{font:700 10px Inter;color:#8993aa;letter-spacing:1.5px;text-transform:uppercase}.health-row{display:flex;align-items:center;gap:12px;margin-top:7px}.health{height:10px;width:min(31vw,260px);background:#292e3b;transform:skew(-14deg);overflow:hidden}.health i{display:block;height:100%;width:100%;background:linear-gradient(90deg,var(--red),#ffb438);transition:width .2s}.health-value{font:900 25px "Barlow Condensed"}
+    .stats{display:flex;gap:22px;text-align:right}.stat strong{display:block;font:900 27px "Barlow Condensed";color:var(--acid)}.wanted{color:#ffe347;font-size:17px;letter-spacing:2px}
+    #message{position:absolute;left:50%;top:86px;transform:translateX(-50%);max-width:70vw;text-align:center;background:#080b13d9;border:1px solid #3b4255;padding:9px 16px;color:#dce2ed;font-size:13px;transition:.2s}
+    .controls{position:absolute;left:20px;bottom:20px;color:#9ba4b8;font-size:11px;line-height:1.8;background:#080b13c7;padding:9px 12px}.controls b{color:white}
+    #status{position:absolute;right:20px;bottom:20px;color:#9ba4b8;font:700 11px Inter;background:#080b13c7;padding:10px 13px}#status.online{color:#77ff9e}
+    #notice{position:absolute;right:20px;top:115px;color:#abb4c7;font-size:12px}
+    #mobileControls{display:none;position:absolute;inset:0;pointer-events:none}.joystick-zone{position:absolute;left:max(18px,env(safe-area-inset-left));bottom:max(22px,env(safe-area-inset-bottom));width:150px;height:150px;pointer-events:auto;touch-action:none}.joystick-base{position:absolute;inset:12px;border-radius:50%;background:#080b14a8;border:2px solid #ffffff35;box-shadow:inset 0 0 30px #0008,0 8px 30px #0008}.joystick-base:before,.joystick-base:after{content:"";position:absolute;background:#ffffff18}.joystick-base:before{left:50%;top:12px;bottom:12px;width:1px}.joystick-base:after{top:50%;left:12px;right:12px;height:1px}.joystick-knob{position:absolute;left:45px;top:45px;width:60px;height:60px;border-radius:50%;background:linear-gradient(145deg,#eaff78,#a6ca14);border:3px solid #f4ffba;box-shadow:0 5px 18px #000b;transform:translate(0,0)}.mobile-actions{position:absolute;right:max(16px,env(safe-area-inset-right));bottom:max(20px,env(safe-area-inset-bottom));width:210px;height:180px;pointer-events:none}.mobile-btn{position:absolute;border-radius:50%;display:grid;place-items:center;padding:0;color:#fff;border:2px solid #ffffff44;background:#111827d9;box-shadow:0 6px 20px #0009;pointer-events:auto;touch-action:none;font:900 13px "Barlow Condensed";letter-spacing:.5px}.mobile-btn.active{transform:scale(.91);filter:brightness(1.35)}#btnFire{right:0;bottom:6px;width:82px;height:82px;background:#b61f3cdb;border-color:#ff6d85;font-size:17px}#btnJump{right:92px;bottom:0;width:68px;height:68px;background:#176e89df;border-color:#64e9ff}#btnAction{right:25px;bottom:98px;width:70px;height:70px;background:#667b12e6;border-color:#ddff43}#btnAction small{display:block;font:700 9px Inter;margin-top:-14px}#mobileHint{position:absolute;left:50%;bottom:max(10px,env(safe-area-inset-bottom));transform:translateX(-50%);font:700 9px Inter;color:#ffffff8c;letter-spacing:1px;text-shadow:0 2px 4px #000}
+    @media(max-width:650px){.top{left:max(8px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));top:max(8px,env(safe-area-inset-top))}.panel{padding:7px 8px}.stats{gap:9px}.stat strong{font-size:19px}.health{width:24vw}.health-value{font-size:20px}.controls,#status{display:none}#message{top:72px;max-width:88vw;font-size:11px;padding:7px 10px}.login-card{padding:25px 22px}.help{grid-template-columns:1fr}.join{flex-direction:column}h1{font-size:64px}}
+    @media(pointer:coarse),(max-width:900px) and (orientation:landscape){#mobileControls{display:block}.controls{display:none}#status{bottom:auto;top:max(88px,env(safe-area-inset-top));right:10px;font-size:9px}.top{top:max(7px,env(safe-area-inset-top))}}
+    @media(pointer:coarse) and (orientation:portrait){.joystick-zone{width:132px;height:132px}.joystick-base{inset:10px}.joystick-knob{left:39px;top:39px;width:54px;height:54px}.mobile-actions{transform:scale(.88);transform-origin:right bottom}.stats .label{font-size:8px}.wanted{font-size:13px}.health{width:21vw}}
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas><div class="grain"></div>
+  <section id="login">
+    <div class="login-card"><span class="stamp">ONLINE / 2D MULTIPLAYER</span><h1>KF:<br><em>City Run</em></h1>
+      <p class="sub">Die Stadt schläft nie. Lauf, plündere Banken, tauche in Gebäuden unter und verkaufe die Beute auf der Straße.</p>
+      <form class="join" id="joinForm"><input id="name" maxlength="16" autocomplete="nickname" placeholder="DEIN RUNNER-NAME" required><button>Jagd starten</button></form>
+      <div class="help"><span><b>A / D</b>Laufen</span><span><b>Leertaste / Klick</b>Schießen</span><span><b>E</b>Betreten / Handeln</span></div>
+    </div>
+  </section>
+  <div id="hud"><div class="top"><div class="panel"><span class="label">Gesundheit</span><div class="health-row"><div class="health"><i id="healthFill"></i></div><span class="health-value" id="healthValue">100</span></div></div>
+    <div class="panel stats"><div class="stat"><span class="label">Bargeld</span><strong id="cash">$0</strong></div><div class="stat"><span class="label">Beute</span><strong id="loot">0</strong></div><div class="stat"><span class="label">Fahndung</span><div class="wanted" id="wanted">★☆☆☆☆</div></div></div></div>
+    <div id="message">Bleib in Bewegung!</div><div id="notice"></div>
+    <div class="controls"><b>A/D oder ←/→</b> laufen · <b>Shift</b> sprinten · <b>W/↑</b> springen<br><b>Leertaste/Klick</b> schießen · <b>E</b> Gebäude / Bank / Händler</div><div id="status">VERBINDE …</div>
+    <div id="mobileControls" aria-label="Handy-Steuerung"><div class="joystick-zone" id="joystick"><div class="joystick-base"></div><div class="joystick-knob" id="joystickKnob"></div></div><div class="mobile-actions"><button class="mobile-btn" id="btnAction" type="button">E<small>AKTION</small></button><button class="mobile-btn" id="btnJump" type="button">SPRUNG</button><button class="mobile-btn" id="btnFire" type="button">FEUER</button></div><div id="mobileHint">STICK WEIT ZIEHEN = SPRINT</div></div>
+  </div>
+  <script src="/app.js?v=1.7"></script>
+</body>
+</html>
