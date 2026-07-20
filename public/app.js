@@ -34,6 +34,158 @@ const assets = {
 };
 function loadImage(src) { const image = new Image(); image.src = src; return image; }
 
+const audioToggle = document.querySelector('#audioToggle');
+const musicTrack = new Audio('/assets/audio/downtown-pursuit.mp3?v=3.0');
+musicTrack.loop = true;
+musicTrack.preload = 'auto';
+musicTrack.volume = .24;
+let audioContext = null, sfxMaster = null, noiseBuffer = null;
+let previousAudioState = null, knownBullets = new Set(), knownBarricades = new Set();
+let audioEnabled = (() => {
+  try { return localStorage.getItem('kf-audio-enabled') !== 'false'; } catch { return true; }
+})();
+
+function updateAudioToggle() {
+  audioToggle.textContent = audioEnabled ? '♫ TON AN' : '♫ TON AUS';
+  audioToggle.classList.toggle('off', !audioEnabled);
+  audioToggle.setAttribute('aria-pressed', String(audioEnabled));
+}
+
+function initAudioContext() {
+  if (audioContext) return;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  audioContext = new AudioContextClass();
+  sfxMaster = audioContext.createGain();
+  sfxMaster.gain.value = .9;
+  sfxMaster.connect(audioContext.destination);
+  noiseBuffer = audioContext.createBuffer(1, audioContext.sampleRate, audioContext.sampleRate);
+  const channel = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < channel.length; i++) channel[i] = Math.random() * 2 - 1;
+}
+
+function unlockAudio() {
+  if (!audioEnabled) return;
+  initAudioContext();
+  if (audioContext?.state === 'suspended') audioContext.resume().catch(() => {});
+  musicTrack.play().catch(() => {});
+}
+
+function audioOutput(source, pan = 0) {
+  if (!audioContext || !sfxMaster) return null;
+  if (typeof audioContext.createStereoPanner === 'function') {
+    const panner = audioContext.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    source.connect(panner); panner.connect(sfxMaster);
+    return panner;
+  }
+  source.connect(sfxMaster);
+  return sfxMaster;
+}
+
+function tone(frequency, duration, volume, options = {}) {
+  if (!audioEnabled || !audioContext || !sfxMaster) return;
+  const start = audioContext.currentTime + (options.delay || 0);
+  const oscillator = audioContext.createOscillator(), gain = audioContext.createGain();
+  oscillator.type = options.type || 'sine';
+  oscillator.frequency.setValueAtTime(frequency, start);
+  oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, options.endFrequency || frequency), start + duration);
+  gain.gain.setValueAtTime(Math.max(.0001, volume), start);
+  gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
+  oscillator.connect(gain); audioOutput(gain, options.pan || 0);
+  oscillator.start(start); oscillator.stop(start + duration + .02);
+}
+
+function noise(duration, volume, frequency, options = {}) {
+  if (!audioEnabled || !audioContext || !sfxMaster || !noiseBuffer) return;
+  const start = audioContext.currentTime + (options.delay || 0);
+  const source = audioContext.createBufferSource(), filter = audioContext.createBiquadFilter(), gain = audioContext.createGain();
+  source.buffer = noiseBuffer; filter.type = options.filter || 'bandpass'; filter.frequency.value = frequency; filter.Q.value = options.q || .8;
+  gain.gain.setValueAtTime(Math.max(.0001, volume), start); gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
+  source.connect(filter); filter.connect(gain); audioOutput(gain, options.pan || 0);
+  source.start(start, Math.random() * .5, duration); source.stop(start + duration + .02);
+}
+
+function playSfx(kind, detail = '', pan = 0) {
+  if (!audioEnabled) return;
+  unlockAudio();
+  if (!audioContext) return;
+  if (kind === 'shot') {
+    if (detail === 'smg') { noise(.055, .26, 1900, { pan }); tone(145, .07, .11, { type: 'square', endFrequency: 72, pan }); }
+    else if (detail === 'shotgun') { noise(.22, .5, 720, { filter: 'lowpass', pan }); tone(105, .2, .24, { type: 'sawtooth', endFrequency: 38, pan }); }
+    else if (detail === 'pulse') { tone(720, .25, .2, { type: 'sawtooth', endFrequency: 95, pan }); tone(118, .3, .26, { endFrequency: 42, pan }); }
+    else { noise(.09, .34, 1450, { pan }); tone(175, .1, .14, { type: 'square', endFrequency: 68, pan }); }
+  } else if (kind === 'policeShot') {
+    noise(.065, .17, 2300, { pan }); tone(240, .08, .07, { type: 'square', endFrequency: 110, pan });
+  } else if (kind === 'hit') {
+    noise(.14, .32, 430, { filter: 'lowpass' }); tone(95, .18, .18, { type: 'square', endFrequency: 42 });
+  } else if (kind === 'armorHit') {
+    noise(.1, .2, 3100); tone(510, .16, .15, { type: 'triangle', endFrequency: 250 });
+  } else if (kind === 'pickup') {
+    tone(520, .12, .13); tone(780, .16, .14, { delay: .1 }); tone(1040, .18, .1, { delay: .2 });
+  } else if (kind === 'score') {
+    tone(420, .08, .1); tone(630, .1, .12, { delay: .07 }); tone(940, .18, .13, { delay: .15 });
+  } else if (kind === 'cash') {
+    tone(740, .08, .12, { type: 'triangle' }); tone(990, .14, .12, { type: 'triangle', delay: .09 });
+  } else if (kind === 'build') {
+    noise(.18, .28, 520, { filter: 'lowpass' }); tone(82, .2, .12, { type: 'square', endFrequency: 55 });
+  } else if (kind === 'death') {
+    tone(290, .45, .2, { type: 'sawtooth', endFrequency: 48 }); noise(.32, .24, 360, { filter: 'lowpass' });
+  } else if (kind === 'weapon') {
+    tone(330, .07, .08, { type: 'square' }); tone(500, .1, .09, { type: 'square', delay: .06 });
+  } else {
+    tone(620, .055, .06, { type: 'triangle', endFrequency: 480 });
+  }
+}
+
+function processAudioState(nextState) {
+  const me = nextState.players.find(player => player.id === myId);
+  if (!me) return;
+  musicTrack.volume = me.inside ? .14 : .24;
+
+  if (!previousAudioState) {
+    knownBullets = new Set(nextState.bullets.map(bullet => bullet.id));
+    knownBarricades = new Set((nextState.barricades || []).map(wall => wall.id));
+    previousAudioState = { ...me };
+    return;
+  }
+
+  let nearbyPoliceShot = null;
+  for (const bullet of nextState.bullets) {
+    if (knownBullets.has(bullet.id)) continue;
+    if (bullet.police && Math.abs(bullet.x - me.x) < 850) nearbyPoliceShot ||= Math.max(-1, Math.min(1, (bullet.x - me.x) / 700));
+  }
+  knownBullets = new Set(nextState.bullets.map(bullet => bullet.id));
+  if (nearbyPoliceShot !== null) playSfx('policeShot', '', nearbyPoliceShot);
+
+  const newWalls = (nextState.barricades || []).filter(wall => !knownBarricades.has(wall.id));
+  if (newWalls.some(wall => wall.ownerId === myId)) playSfx('build');
+  knownBarricades = new Set((nextState.barricades || []).map(wall => wall.id));
+
+  if (me.respawn > 0 && previousAudioState.respawn <= 0) playSfx('death');
+  else if (me.health < previousAudioState.health) playSfx('hit');
+  else if (me.armor < previousAudioState.armor) playSfx('armorHit');
+  if (me.score > previousAudioState.score) playSfx('score');
+  if (me.cash > previousAudioState.cash) playSfx('cash');
+  if (me.loot > previousAudioState.loot) playSfx('pickup');
+  if (me.activeWeapon !== previousAudioState.activeWeapon) playSfx('weapon');
+  previousAudioState = { ...me };
+}
+
+audioToggle.addEventListener('pointerdown', event => {
+  event.preventDefault(); event.stopPropagation();
+  audioEnabled = !audioEnabled;
+  try { localStorage.setItem('kf-audio-enabled', String(audioEnabled)); } catch {}
+  if (audioEnabled) { unlockAudio(); playSfx('ui'); }
+  else { musicTrack.pause(); if (audioContext?.state === 'running') audioContext.suspend().catch(() => {}); }
+  updateAudioToggle();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) musicTrack.pause();
+  else if (audioEnabled && myId) unlockAudio();
+});
+updateAudioToggle();
+
 function resize() { canvas.width = innerWidth * devicePixelRatio; canvas.height = innerHeight * devicePixelRatio; scale = devicePixelRatio; }
 addEventListener('resize', resize); resize();
 
@@ -41,6 +193,7 @@ document.querySelector('#joinForm').addEventListener('submit', event => {
   event.preventDefault();
   const name = document.querySelector('#name').value.trim();
   if (!name) return;
+  unlockAudio(); playSfx('ui');
   connect(name);
 });
 
@@ -52,8 +205,9 @@ function connect(name) {
   socket.addEventListener('message', event => {
     const msg = JSON.parse(event.data);
     if (msg.type === 'hello') { worldWidth = msg.worldWidth; groundY = msg.groundY; buildings = msg.buildings; vendors = msg.vendors; }
-    if (msg.type === 'joined') { myId = msg.id; login.style.display = 'none'; hud.style.display = 'block'; }
-    if (msg.type === 'state') { state = msg; updateHud(); }
+    if (msg.type === 'joined') { myId = msg.id; login.style.display = 'none'; hud.style.display = 'block'; unlockAudio(); }
+    if (msg.type === 'sfx') playSfx(msg.name, msg.detail || '', msg.pan || 0);
+    if (msg.type === 'state') { processAudioState(msg); state = msg; updateHud(); }
     if (msg.type === 'notice') { noticeEl.textContent = msg.text; noticeTimer = 220; }
   });
   socket.addEventListener('close', () => { statusEl.textContent = 'VERBINDUNG GETRENNT'; statusEl.classList.remove('online'); setTimeout(() => location.reload(), 1800); });
@@ -71,12 +225,12 @@ function setKey(code, down) {
 addEventListener('keydown', e => {
   if (['ArrowLeft','ArrowRight','ArrowUp','Space','Tab'].includes(e.code)) e.preventDefault();
   if (!e.repeat && e.code === 'Space') send('shoot');
-  if (!e.repeat && e.code === 'KeyE') send('interact');
-  if (!e.repeat && e.code === 'KeyQ') send('switchWeapon');
-  if (!e.repeat && e.code === 'KeyB') send('build');
-  if (!e.repeat && ['KeyH','Tab'].includes(e.code)) toggleHighscore();
+  if (!e.repeat && e.code === 'KeyE') { playSfx('ui'); send('interact'); }
+  if (!e.repeat && e.code === 'KeyQ') { playSfx('ui'); send('switchWeapon'); }
+  if (!e.repeat && e.code === 'KeyB') { playSfx('ui'); send('build'); }
+  if (!e.repeat && ['KeyH','Tab'].includes(e.code)) { playSfx('ui'); toggleHighscore(); }
   const weaponKeys={Digit1:'pistol',Digit2:'smg',Digit3:'shotgun',Digit4:'pulse'};
-  if (!e.repeat && weaponKeys[e.code]) send('switchWeapon',{weapon:weaponKeys[e.code]});
+  if (!e.repeat && weaponKeys[e.code]) { playSfx('ui'); send('switchWeapon',{weapon:weaponKeys[e.code]}); }
   setKey(e.code, true); send();
 });
 addEventListener('keyup', e => { setKey(e.code, false); send(); });
@@ -107,12 +261,12 @@ joystick.addEventListener('pointerup',releaseJoystick);joystick.addEventListener
 
 function actionButton(id,action,holdKey){
   const button=document.querySelector(id);
-  button.addEventListener('pointerdown',event=>{event.preventDefault();button.setPointerCapture(event.pointerId);button.classList.add('active');if(holdKey){keys[holdKey]=true;send();}else send(action);});
+  button.addEventListener('pointerdown',event=>{event.preventDefault();button.setPointerCapture(event.pointerId);button.classList.add('active');if(holdKey){keys[holdKey]=true;send();}else{if(action!=='shoot')playSfx('ui');send(action);}});
   const release=()=>{button.classList.remove('active');if(holdKey){keys[holdKey]=false;send();}};
   button.addEventListener('pointerup',release);button.addEventListener('pointercancel',release);
 }
 actionButton('#btnFire','shoot');actionButton('#btnJump',null,'jump');actionButton('#btnAction','interact');actionButton('#btnWeapon','switchWeapon');actionButton('#btnBuild','build');
-document.querySelector('#btnScore').addEventListener('pointerdown',event=>{event.preventDefault();toggleHighscore();});
+document.querySelector('#btnScore').addEventListener('pointerdown',event=>{event.preventDefault();playSfx('ui');toggleHighscore();});
 
 const WEAPON_LABELS={pistol:'PISTOLE',smg:'MP',shotgun:'SCHROT',pulse:'IMPULS'};
 

@@ -144,6 +144,10 @@ function send(ws, payload) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
 }
 
+function sendSfx(player, name, detail = '') {
+  send(player.ws, { type: 'sfx', name, detail });
+}
+
 function broadcast(payload) {
   const data = JSON.stringify(payload);
   for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) client.send(data);
@@ -250,6 +254,7 @@ function fire(p) {
       damage: weapon.damage, police: false, weapon: weaponId
     });
   }
+  sendSfx(p, 'shot', weaponId);
 }
 
 function switchWeapon(p, requested) {
@@ -404,6 +409,7 @@ function updateWorldItems() {
         p.armor = Math.min(p.maxArmor, p.armor + 50); p.barricadeKits++;
         pickup.active = false; pickup.respawn = 1500;
         p.message = `Rüstung +50 und 1 Barrikaden-Bausatz (${p.barricadeKits}).`;
+        sendSfx(p, 'pickup', 'armor');
         break;
       }
     }

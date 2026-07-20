@@ -24,6 +24,13 @@ Dann `http://localhost:3000` öffnen. Für einen lokalen Multiplayer-Test das Sp
 - `B`: Barrikade vor dem Spieler errichten
 - `H` oder `Tab`: Top-10-Highscore öffnen und schließen
 
+## Musik und Soundeffekte
+
+- **Downtown Pursuit** läuft nach dem Start der Jagd automatisch als Hintergrundmusik in einer Schleife.
+- Eigene Soundeffekte begleiten Pistole, Maschinenpistole, Schrotflinte, Impulswerfer, Polizeischüsse, Treffer, Rüstung, Beute, Käufe und Barrikaden.
+- Der Schalter `♫ TON AN/AUS` im Statusfeld schaltet Musik und Effekte gemeinsam um. Die Einstellung wird im Browser gespeichert.
+- Auf Smartphones wird Audio erst nach dem Tippen auf `Jagd starten` aktiviert, wie es die Autoplay-Regeln der mobilen Browser verlangen.
+
 ## Highscore
 
 Die Highscore wird serverseitig in `data/highscores.json` gespeichert und bleibt nach einem Neustart erhalten. Bankbeute und Verkäufe geben keine Highscore-Punkte; entscheidend sind ausgeschaltete Polizeigegner.
