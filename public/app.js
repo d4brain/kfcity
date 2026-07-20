@@ -8,20 +8,25 @@ const statusEl = document.querySelector('#status');
 const messageEl = document.querySelector('#message');
 const healthFill = document.querySelector('#healthFill');
 const healthValue = document.querySelector('#healthValue');
+const armorFill = document.querySelector('#armorFill');
+const armorValue = document.querySelector('#armorValue');
 const cashEl = document.querySelector('#cash');
 const lootEl = document.querySelector('#loot');
 const wantedEl = document.querySelector('#wanted');
+const weaponNameEl = document.querySelector('#weaponName');
+const kitsEl = document.querySelector('#kits');
 const noticeEl = document.querySelector('#notice');
 
 let socket, myId, worldWidth = 7200, groundY = 520, scale = 1;
-let buildings = [], vendors = [], state = { players: [], police: [], bullets: [] };
+let buildings = [], vendors = [], state = { players: [], police: [], bullets: [], barricades: [], armorPickups: [] };
 let cameraX = 0, lastMessage = '', noticeTimer = 0;
 const keys = { left: false, right: false, jump: false, shift: false };
 const assets = {
   city: loadImage('/assets/city-background.png?v=1.6'),
   bank: loadImage('/assets/bank-interior.png?v=1.6'),
   runner: loadImage('/assets/runner-sprites.png?v=1.6'),
-  police: loadImage('/assets/police-sprites.png?v=1.6')
+  police: loadImage('/assets/police-sprites.png?v=1.6'),
+  projectiles: loadImage('/assets/projectile-sprites.png?v=2.0')
 };
 function loadImage(src) { const image = new Image(); image.src = src; return image; }
 
@@ -50,8 +55,8 @@ function connect(name) {
   socket.addEventListener('close', () => { statusEl.textContent = 'VERBINDUNG GETRENNT'; statusEl.classList.remove('online'); setTimeout(() => location.reload(), 1800); });
 }
 
-function send(action) {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', keys, action }));
+function send(action, extra={}) {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', keys, action, ...extra }));
 }
 function setKey(code, down) {
   if (['KeyA','ArrowLeft'].includes(code)) keys.left = down;
@@ -63,6 +68,10 @@ addEventListener('keydown', e => {
   if (['ArrowLeft','ArrowRight','ArrowUp','Space'].includes(e.code)) e.preventDefault();
   if (!e.repeat && e.code === 'Space') send('shoot');
   if (!e.repeat && e.code === 'KeyE') send('interact');
+  if (!e.repeat && e.code === 'KeyQ') send('switchWeapon');
+  if (!e.repeat && e.code === 'KeyB') send('build');
+  const weaponKeys={Digit1:'pistol',Digit2:'smg',Digit3:'shotgun',Digit4:'pulse'};
+  if (!e.repeat && weaponKeys[e.code]) send('switchWeapon',{weapon:weaponKeys[e.code]});
   setKey(e.code, true); send();
 });
 addEventListener('keyup', e => { setKey(e.code, false); send(); });
@@ -97,13 +106,18 @@ function actionButton(id,action,holdKey){
   const release=()=>{button.classList.remove('active');if(holdKey){keys[holdKey]=false;send();}};
   button.addEventListener('pointerup',release);button.addEventListener('pointercancel',release);
 }
-actionButton('#btnFire','shoot');actionButton('#btnJump',null,'jump');actionButton('#btnAction','interact');
+actionButton('#btnFire','shoot');actionButton('#btnJump',null,'jump');actionButton('#btnAction','interact');actionButton('#btnWeapon','switchWeapon');actionButton('#btnBuild','build');
+
+const WEAPON_LABELS={pistol:'PISTOLE',smg:'MP',shotgun:'SCHROT',pulse:'IMPULS'};
 
 function updateHud() {
   const me = state.players.find(p => p.id === myId); if (!me) return;
   healthFill.style.width = `${me.health}%`; healthValue.textContent = me.health;
+  armorFill.style.width = `${me.armor}%`; armorValue.textContent = me.armor;
   cashEl.textContent = `$${me.cash.toLocaleString('de-CH')}`; lootEl.textContent = me.loot;
   wantedEl.textContent = '★'.repeat(me.wanted) + '☆'.repeat(5 - me.wanted);
+  weaponNameEl.textContent = WEAPON_LABELS[me.activeWeapon] || me.activeWeapon;
+  kitsEl.textContent = me.barricadeKits;
   if (me.message !== lastMessage) { messageEl.textContent = me.message; lastMessage = me.message; }
 }
 
@@ -141,7 +155,7 @@ function drawBuilding(b, baseY) {
   text(bank?'[ E ] BANK AUSRAUBEN':'[ E ] VERSTECKEN',x+b.w/2,baseY-112,15,'#fff','center');
 }
 
-function drawVendor(v,baseY){const x=sx(v.x);if(x<-100||x>canvas.width/scale+100)return;rect(x-48,baseY-72,96,55,'#693f27');rect(x-62,baseY-86,124,18,'#d74b5e');rect(x-8,baseY-123,16,37,'#ffce45');text('$',x,baseY-96,23,'#12151c','center');text('[ E ] VERKAUFEN',x,baseY-135,15,'#d7ff32','center');text(v.label,x,baseY-147,12,'#fff','center');}
+function drawVendor(v,baseY){const x=sx(v.x);if(x<-100||x>canvas.width/scale+100)return;rect(x-48,baseY-72,96,55,'#693f27');rect(x-62,baseY-86,124,18,'#d74b5e');rect(x-8,baseY-123,16,37,'#ffce45');text('$',x,baseY-96,23,'#12151c','center');text('[ E ] HANDELN',x,baseY-135,15,'#d7ff32','center');text(v.label,x,baseY-147,12,'#fff','center');}
 
 const RUNNER_BOUNDS=[[98,638],[158,634],[147,627],[93,582],[56,638],[147,638]];
 const POLICE_BOUNDS=[[101,592],[134,584],[137,578],[154,586],[126,592],[147,589]];
@@ -171,7 +185,29 @@ function drawPerson(p,baseY,isMe=false,interior=false){
 }
 
 function drawCop(c,baseY){const x=sx(c.x),y=baseY-(groundY-c.y);if(x<-80||x>canvas.width/scale+80)return;const frame=c.flash?5:1+(Math.floor(performance.now()/125)%3),feetY=y+c.height+CHARACTER_GROUND_OFFSET;drawGroundShadow(x,baseY+CHARACTER_GROUND_OFFSET,29,.4);if(!spriteFrame(assets.police,frame,x,feetY,108,c.dir))rect(x-13,y+CHARACTER_GROUND_OFFSET,26,58,'#203a63');text('POLIZEI',x,feetY-116,12,'#6bc7ff','center');}
-function drawBullet(b,baseY){const x=sx(b.x),y=baseY-(groundY-b.y);rect(x-5,y-2,10,4,b.police?'#69c8ff':'#d7ff32');ctx.globalAlpha=.25;rect(x-b.vx*2,y-1,b.vx*2,2,b.police?'#69c8ff':'#d7ff32');ctx.globalAlpha=1;}
+const PROJECTILE_ORDER={pistol:0,smg:1,shotgun:2,pulse:3,police:4};
+const PROJECTILE_BOUNDS=[[63,326,358,387],[27,331,375,387],[54,272,339,435],[14,227,435,482],[0,320,346,391]];
+const PROJECTILE_WIDTH={pistol:30,smg:40,shotgun:38,pulse:48,police:38};
+function drawBullet(b,baseY){
+  const x=sx(b.x),y=baseY-(groundY-b.y),index=PROJECTILE_ORDER[b.weapon]??0;
+  if(assets.projectiles.complete&&assets.projectiles.naturalWidth){
+    const cell=assets.projectiles.naturalWidth/5,bound=PROJECTILE_BOUNDS[index],sw=bound[2]-bound[0],sh=bound[3]-bound[1],dw=PROJECTILE_WIDTH[b.weapon]||30,dh=dw*sh/sw;
+    ctx.save();ctx.translate(x,y);if(b.vx<0)ctx.scale(-1,1);ctx.globalCompositeOperation='lighter';ctx.drawImage(assets.projectiles,index*cell+bound[0],bound[1],sw,sh,-dw/2,-dh/2,dw,dh);ctx.restore();
+  }else rect(x-5,y-2,10,4,b.police?'#69c8ff':'#d7ff32');
+}
+
+function drawArmorPickup(item,baseY){
+  if(!item.active)return;const x=sx(item.x),ground=baseY+CHARACTER_GROUND_OFFSET;if(x<-60||x>canvas.width/scale+60)return;
+  const bob=Math.sin(performance.now()/260+item.x)*4;
+  ctx.save();ctx.translate(x,ground-34+bob);ctx.shadowColor='#43e5ff';ctx.shadowBlur=18;rect(-20,-18,40,36,'#173c5b');ctx.shadowBlur=0;ctx.strokeStyle='#66eaff';ctx.lineWidth=2;ctx.strokeRect(-20,-18,40,36);ctx.fillStyle='#9cf4ff';ctx.beginPath();ctx.moveTo(0,-12);ctx.lineTo(12,-7);ctx.lineTo(9,8);ctx.lineTo(0,14);ctx.lineTo(-9,8);ctx.lineTo(-12,-7);ctx.closePath();ctx.fill();ctx.restore();text('ARMOR',x,ground-62+bob,12,'#72ebff','center');
+}
+
+function drawBarricade(wall,baseY){
+  const x=sx(wall.x),ground=baseY+CHARACTER_GROUND_OFFSET;if(x<-90||x>canvas.width/scale+90)return;
+  drawGroundShadow(x,ground,43,.55);ctx.save();ctx.translate(x,ground);ctx.fillStyle='#161b24';ctx.fillRect(-43,-82,86,82);ctx.strokeStyle='#778398';ctx.lineWidth=3;ctx.strokeRect(-43,-82,86,82);
+  for(let y=-72;y<-8;y+=22){ctx.fillStyle=y%44===0?'#3d4656':'#2b3340';ctx.fillRect(-38,y,76,17);ctx.fillStyle='#d7ff32';ctx.fillRect(-34,y+6,9,4);ctx.fillRect(25,y+6,9,4);}ctx.restore();
+  rect(x-38,ground-94,76,6,'#242a36');rect(x-38,ground-94,76*(wall.health/wall.maxHealth),6,'#d7ff32');text('BARRIKADE',x,ground-102,11,'#fff','center');
+}
 
 function render() {
   const w=canvas.width/scale,h=canvas.height/scale;ctx.setTransform(scale,0,0,scale,0,0);ctx.clearRect(0,0,w,h);
@@ -181,6 +217,7 @@ function render() {
   if(me?.inside){drawBankInterior(w,h,baseY,me);requestAnimationFrame(render);return;}
   drawSky(w,h);drawStreet(w,h,baseY);
   for(const b of buildings)drawBuilding(b,baseY);for(const v of vendors)drawVendor(v,baseY);
+  for(const item of state.armorPickups||[])drawArmorPickup(item,baseY);for(const wall of state.barricades||[])drawBarricade(wall,baseY);
   for(const b of state.bullets)drawBullet(b,baseY);for(const c of state.police)drawCop(c,baseY);for(const p of state.players)drawPerson(p,baseY,p.id===myId);
   const markerSpacing=1000;for(let x=markerSpacing;x<worldWidth;x+=markerSpacing){const px=sx(x);if(px>0&&px<w)text(`${x/1000} KM`,px,baseY+35,12,'#6c7588','center');}
   if(me?.hidden){ctx.fillStyle='#05070bbb';ctx.fillRect(0,0,w,h);text('VERSCHANZT',w/2,h/2-10,48,'#d7ff32','center');text('E DRÜCKEN, UM DAS GEBÄUDE ZU VERLASSEN',w/2,h/2+28,16,'#fff','center');}

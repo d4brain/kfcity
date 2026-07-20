@@ -34,7 +34,23 @@ const GROUND_Y = 520;
 const players = new Map();
 const bullets = [];
 const police = [];
+const barricades = [];
 let nextId = 1;
+
+const WEAPONS = {
+  pistol:  { label: 'Pistole', cooldown: 14, damage: 30, speed: 14, life: 75, pellets: 1, spread: 0 },
+  smg:     { label: 'Maschinenpistole', cooldown: 5, damage: 14, speed: 17, life: 62, pellets: 1, spread: 1.5 },
+  shotgun: { label: 'Schrotflinte', cooldown: 30, damage: 18, speed: 13, life: 38, pellets: 5, spread: 4.5 },
+  pulse:   { label: 'Impulswerfer', cooldown: 22, damage: 48, speed: 11, life: 85, pellets: 1, spread: 0 }
+};
+const WEAPON_SHOP = [
+  { id: 'smg', price: 600 },
+  { id: 'shotgun', price: 1200 },
+  { id: 'pulse', price: 2000 }
+];
+const armorPickups = [680, 1960, 2860, 4040, 4920, 6120, 6980].map((x, index) => ({
+  id: `armor-${index + 1}`, x, active: true, respawn: 0
+}));
 
 const buildings = [
   { id: 'safe-1', type: 'hideout', x: 530, w: 300, label: 'Waschsalon' },
@@ -60,7 +76,8 @@ function newPlayer(ws, name) {
   return {
     id: `p${nextId++}`, ws, name: cleanName(name), x: 160 + Math.random() * 120,
     y: GROUND_Y - 62, vx: 0, vy: 0, width: 34, height: 62, dir: 1,
-    health: 100, cash: 0, loot: 0, score: 0, hidden: false, hiddenIn: null,
+    health: 100, armor: 0, maxArmor: 100, cash: 0, loot: 0, score: 0, hidden: false, hiddenIn: null,
+    weapons: ['pistol'], activeWeapon: 'pistol', barricadeKits: 3,
     inside: null, interiorX: 140, bankLooted: false,
     keys: {}, shootCooldown: 0, interactCooldown: 0, invuln: 0, wanted: 1,
     color: `hsl(${Math.floor(Math.random() * 360)} 80% 60%)`, respawn: 0,
@@ -156,14 +173,54 @@ function interact(p) {
       p.message = `${p.loot} Beutesack${p.loot > 1 ? 'säcke' : ''} für $${earned} verkauft!`;
       p.loot = 0;
       p.wanted = Math.max(1, p.wanted - 1);
-    } else p.message = 'Du hast keine Ware dabei.';
+    } else {
+      const offer = WEAPON_SHOP.find(item => !p.weapons.includes(item.id));
+      if (offer && p.cash >= offer.price) {
+        p.cash -= offer.price; p.weapons.push(offer.id); p.activeWeapon = offer.id;
+        p.message = `${WEAPONS[offer.id].label} für $${offer.price} gekauft und ausgerüstet!`;
+      } else if (offer) {
+        p.message = `${WEAPONS[offer.id].label} kostet $${offer.price}. Erst Beute verkaufen!`;
+      } else if (p.cash >= 250) {
+        p.cash -= 250; p.barricadeKits++;
+        p.message = 'Barrikaden-Bausatz für $250 gekauft.';
+      } else p.message = 'Alle Waffen gekauft. Ein Barrikaden-Bausatz kostet $250.';
+    }
   } else p.message = 'Hier gibt es nichts zu benutzen.';
 }
 
 function fire(p) {
   if (p.shootCooldown > 0 || p.hidden || p.respawn > 0) return;
-  p.shootCooldown = 14;
-  bullets.push({ id: `b${nextId++}`, owner: p.id, x: p.x + p.dir * 25, y: p.y + 24, vx: p.dir * 14, life: 75, police: false });
+  const weaponId = WEAPONS[p.activeWeapon] ? p.activeWeapon : 'pistol';
+  const weapon = WEAPONS[weaponId];
+  p.shootCooldown = weapon.cooldown;
+  for (let i = 0; i < weapon.pellets; i++) {
+    const spread = weapon.pellets === 1 ? (Math.random() - .5) * weapon.spread : (i - (weapon.pellets - 1) / 2) * weapon.spread;
+    bullets.push({
+      id: `b${nextId++}`, owner: p.id, x: p.x + p.dir * 28, y: p.y + 24,
+      vx: p.dir * weapon.speed, vy: spread * .12, life: weapon.life,
+      damage: weapon.damage, police: false, weapon: weaponId
+    });
+  }
+}
+
+function switchWeapon(p, requested) {
+  if (p.respawn > 0) return;
+  if (requested && p.weapons.includes(requested)) p.activeWeapon = requested;
+  else {
+    const index = p.weapons.indexOf(p.activeWeapon);
+    p.activeWeapon = p.weapons[(index + 1) % p.weapons.length];
+  }
+  p.message = `Waffe: ${WEAPONS[p.activeWeapon].label}`;
+}
+
+function buildBarricade(p) {
+  if (p.respawn > 0 || p.hidden || p.inside) return;
+  if (p.barricadeKits <= 0) { p.message = 'Keine Bausätze mehr – beim Händler für $250 erhältlich.'; return; }
+  const x = clamp(p.x + p.dir * 76, 40, WORLD_WIDTH - 40);
+  if (barricades.some(b => Math.abs(b.x - x) < 120)) { p.message = 'Hier steht bereits eine Barrikade.'; return; }
+  p.barricadeKits--;
+  barricades.push({ id: `wall${nextId++}`, ownerId: p.id, x, health: 180, maxHealth: 180, life: 4500 });
+  p.message = `Barrikade gebaut – ${p.barricadeKits} Bausatz/Bausätze übrig.`;
 }
 
 wss.on('connection', ws => {
@@ -182,6 +239,8 @@ wss.on('connection', ws => {
       player.keys = msg.keys && typeof msg.keys === 'object' ? msg.keys : {};
       if (msg.action === 'shoot') fire(player);
       if (msg.action === 'interact') interact(player);
+      if (msg.action === 'switchWeapon') switchWeapon(player, msg.weapon);
+      if (msg.action === 'build') buildBarricade(player);
     }
   });
 
@@ -196,7 +255,7 @@ function updatePlayer(p) {
   if (p.respawn > 0) {
     p.respawn--;
     if (p.respawn === 0) {
-      p.x = 180; p.y = GROUND_Y - p.height; p.health = 100; p.loot = 0;
+      p.x = 180; p.y = GROUND_Y - p.height; p.health = 100; p.armor = 0; p.loot = 0;
       p.wanted = 1; p.message = 'Zurück im Rennen – die Beute ist verloren.';
     }
     return;
@@ -229,10 +288,11 @@ function updatePolice(c) {
   if (!target || target.hidden || target.respawn) { c.x += c.dir * 1.2; return; }
   c.dir = target.x >= c.x ? 1 : -1;
   const distance = Math.abs(target.x - c.x);
-  if (distance > 170) c.x += c.dir * (2.1 + target.wanted * .22);
+  const blocker = barricades.find(b => b.x > Math.min(c.x, target.x) && b.x < Math.max(c.x, target.x) && Math.abs(c.x - b.x) < 105);
+  if (distance > 170 && !blocker) c.x += c.dir * (2.1 + target.wanted * .22);
   c.shootCooldown--;
   if (distance < 520 && c.shootCooldown <= 0) {
-    bullets.push({ id: `b${nextId++}`, owner: c.id, x: c.x + c.dir * 22, y: c.y + 23, vx: c.dir * 10, life: 90, police: true });
+    bullets.push({ id: `b${nextId++}`, owner: c.id, x: c.x + c.dir * 22, y: c.y + 23, vx: c.dir * 10, vy: 0, life: 90, damage: 12, police: true, weapon: 'police' });
     c.shootCooldown = 70 + Math.random() * 45;
   }
   if (c.flash > 0) c.flash--;
@@ -240,13 +300,23 @@ function updatePolice(c) {
 
 function updateBullets() {
   for (let i = bullets.length - 1; i >= 0; i--) {
-    const b = bullets[i]; b.x += b.vx; b.life--;
+    const b = bullets[i], previousX = b.x; b.x += b.vx; b.y += b.vy || 0; b.life--;
     let hit = false;
+    for (const wall of barricades) {
+      const crossed = wall.x >= Math.min(previousX, b.x) - 12 && wall.x <= Math.max(previousX, b.x) + 12;
+      if (crossed && b.y > GROUND_Y - 92 && b.y < GROUND_Y + 8 && (b.police || wall.ownerId !== b.owner)) {
+        wall.health -= b.damage || 12; hit = true; break;
+      }
+    }
+    if (hit) { bullets.splice(i, 1); continue; }
     if (b.police) {
       for (const p of players.values()) {
         if (!p.hidden && !p.respawn && p.invuln <= 0 && Math.abs(b.x - p.x) < 25 && Math.abs(b.y - (p.y + 28)) < 38) {
-          p.health = Math.max(0, p.health - 12); p.invuln = 24; hit = true;
-          p.message = 'Treffer! Such Deckung.';
+          let damage = b.damage || 12;
+          const absorbed = Math.min(p.armor, damage);
+          p.armor -= absorbed; damage -= absorbed;
+          p.health = Math.max(0, p.health - damage); p.invuln = 24; hit = true;
+          p.message = absorbed > 0 ? `Rüstung absorbiert ${absorbed} Schaden.` : 'Treffer! Such Deckung.';
           if (p.health <= 0) { p.respawn = 150; p.message = 'Erwischt! Neustart in 3 Sekunden …'; }
           break;
         }
@@ -255,7 +325,7 @@ function updateBullets() {
       for (let j = police.length - 1; j >= 0; j--) {
         const c = police[j];
         if (Math.abs(b.x - c.x) < 25 && Math.abs(b.y - (c.y + 28)) < 36) {
-          c.health -= 30; c.flash = 5; hit = true;
+          c.health -= b.damage || 30; c.flash = 5; hit = true;
           const owner = players.get(b.owner);
           if (c.health <= 0) { police.splice(j, 1); if (owner) { owner.score += 75; owner.message = 'Verfolger abgehängt: +75 Punkte'; } }
           break;
@@ -266,11 +336,32 @@ function updateBullets() {
   }
 }
 
+function updateWorldItems() {
+  for (const pickup of armorPickups) {
+    if (!pickup.active) {
+      if (--pickup.respawn <= 0) pickup.active = true;
+      continue;
+    }
+    for (const p of players.values()) {
+      if (!p.hidden && !p.inside && !p.respawn && p.armor < p.maxArmor && Math.abs(p.x - pickup.x) < 42) {
+        p.armor = Math.min(p.maxArmor, p.armor + 50); p.barricadeKits++;
+        pickup.active = false; pickup.respawn = 1500;
+        p.message = `Rüstung +50 und 1 Barrikaden-Bausatz (${p.barricadeKits}).`;
+        break;
+      }
+    }
+  }
+  for (let i = barricades.length - 1; i >= 0; i--) {
+    if (--barricades[i].life <= 0 || barricades[i].health <= 0) barricades.splice(i, 1);
+  }
+}
+
 let spawnClock = 0;
 setInterval(() => {
   for (const p of players.values()) updatePlayer(p);
   for (const c of police) updatePolice(c);
   updateBullets();
+  updateWorldItems();
   spawnClock++;
   if (spawnClock > 180) {
     spawnClock = 0;
@@ -279,7 +370,7 @@ setInterval(() => {
   broadcast({
     type: 'state',
     players: [...players.values()].map(publicPlayer),
-    police: police.map(c => ({ ...c })), bullets
+    police: police.map(c => ({ ...c })), bullets, barricades, armorPickups
   });
 }, 1000 / 50);
 
