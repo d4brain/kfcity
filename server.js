@@ -29,7 +29,14 @@ const PORT = Number(process.env.PORT) || 31400;
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (_req, res) => res.json({ ok: true, players: players.size }));
 
-const WORLD_WIDTH = 7200;
+const STAGE_WIDTH = 5000;
+const STAGES = [
+  { id: 'city', name: 'STADT', objective: 'Raube die City Bank aus und verlasse sie.' },
+  { id: 'country', name: 'LAND', objective: 'Durchsuche die Scheune nach der Schmugglerroute.' },
+  { id: 'coast', name: 'KÜSTENVORSTADT', objective: 'Triff den Kontakt in der Beachbar.' },
+  { id: 'harbor', name: 'HAFEN', objective: 'Hole die Schmuggelware und liefere sie in der Rotlicht-Kneipe ab.' }
+];
+const WORLD_WIDTH = STAGE_WIDTH * STAGES.length;
 const GROUND_Y = 520;
 const players = new Map();
 const bullets = [];
@@ -49,9 +56,22 @@ const WEAPON_SHOP = [
   { id: 'shotgun', price: 1200 },
   { id: 'pulse', price: 2000 }
 ];
-const armorPickups = [680, 1960, 2860, 4040, 4920, 6120, 6980].map((x, index) => ({
+const armorPickups = [680, 3550, 5680, 9200, 10800, 14200, 15800, 19100].map((x, index) => ({
   id: `armor-${index + 1}`, x, active: true, respawn: 0
 }));
+const stageItems = [
+  { id: 'city-cash', x: 2380, type: 'cash', label: 'GELDKOFFER' },
+  { id: 'city-med', x: 4300, type: 'medkit', label: 'MEDKIT' },
+  { id: 'land-tools', x: 6050, type: 'kit', label: 'WERKZEUGKISTE' },
+  { id: 'land-med', x: 8150, type: 'medkit', label: 'ERSTE HILFE' },
+  { id: 'land-cash', x: 9650, type: 'cash', label: 'FARMKASSE' },
+  { id: 'coast-sports', x: 11200, type: 'cash', label: 'SPORTTASCHE' },
+  { id: 'coast-med', x: 12850, type: 'medkit', label: 'BEACH-MEDKIT' },
+  { id: 'coast-kit', x: 14600, type: 'kit', label: 'PLATZWART-KISTE' },
+  { id: 'harbor-package', x: 16250, type: 'contraband', label: 'SCHMUGGELPAKET' },
+  { id: 'harbor-cash', x: 17600, type: 'cash', label: 'HAFENKASSE' },
+  { id: 'harbor-kit', x: 18800, type: 'kit', label: 'CONTAINER-WERKZEUG' }
+].map(item => ({ ...item, active: true, respawn: 0 }));
 
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
 const HIGHSCORE_FILE = path.join(DATA_DIR, 'highscores.json');
@@ -103,19 +123,24 @@ function publicHighscores() {
 loadHighscores();
 
 const buildings = [
-  { id: 'safe-1', type: 'hideout', x: 530, w: 300, label: 'Waschsalon' },
-  { id: 'bank-1', type: 'bank', x: 1260, w: 360, label: 'CITY BANK' },
-  { id: 'safe-2', type: 'hideout', x: 2180, w: 320, label: 'Kino Orion' },
-  { id: 'bank-2', type: 'bank', x: 3070, w: 390, label: 'METRO BANK' },
-  { id: 'safe-3', type: 'hideout', x: 4150, w: 340, label: 'Hotel Nova' },
-  { id: 'bank-3', type: 'bank', x: 5260, w: 370, label: 'CENTRAL BANK' },
-  { id: 'safe-4', type: 'hideout', x: 6240, w: 360, label: 'Parkhaus' }
+  { id: 'city-safe', type: 'hideout', x: 530, w: 300, label: 'Waschsalon' },
+  { id: 'city-bank', type: 'bank', x: 1320, w: 390, label: 'CITY BANK' },
+  { id: 'city-hotel', type: 'hideout', x: 3150, w: 330, label: 'Hotel Nova' },
+  { id: 'land-house', type: 'hideout', x: 5350, w: 320, label: 'Farmhaus' },
+  { id: 'land-barn', type: 'barn', x: 7050, w: 430, label: 'ALTE SCHEUNE' },
+  { id: 'land-mill', type: 'hideout', x: 8850, w: 320, label: 'Landmühle' },
+  { id: 'coast-villa', type: 'hideout', x: 10300, w: 350, label: 'Villa Azure' },
+  { id: 'coast-tennis', type: 'hideout', x: 11900, w: 390, label: 'Tennis Club' },
+  { id: 'coast-beachbar', type: 'beachbar', x: 13600, w: 430, label: 'SUNSET BEACHBAR' },
+  { id: 'harbor-warehouse', type: 'hideout', x: 15300, w: 390, label: 'Lagerhaus 9' },
+  { id: 'harbor-container', type: 'container', x: 17400, w: 440, label: 'CONTAINERTERMINAL' },
+  { id: 'harbor-pub', type: 'pub', x: 19300, w: 430, label: 'ROTE LATERNE' }
 ];
 const vendors = [
-  { id: 'vendor-1', x: 930, label: 'Strassenhändler' },
-  { id: 'vendor-2', x: 2700, label: 'Pfandhändler' },
-  { id: 'vendor-3', x: 4780, label: 'Nachtmarkt' },
-  { id: 'vendor-4', x: 6750, label: 'Hinterhof-Shop' }
+  { id: 'vendor-city', x: 2650, label: 'Strassenhändler' },
+  { id: 'vendor-land', x: 7900, label: 'Landhändler' },
+  { id: 'vendor-coast', x: 12550, label: 'Promenaden-Shop' },
+  { id: 'vendor-harbor', x: 18400, label: 'Hafen-Schieber' }
 ];
 
 function cleanName(value) {
@@ -128,7 +153,8 @@ function newPlayer(ws, name) {
     y: GROUND_Y - 62, vx: 0, vy: 0, width: 34, height: 62, dir: 1,
     health: 100, armor: 0, maxArmor: 100, cash: 0, loot: 0, score: 0, hidden: false, hiddenIn: null,
     weapons: ['pistol'], activeWeapon: 'pistol', barricadeKits: 3,
-    inside: null, interiorX: 140, bankLooted: false,
+    inside: null, interiorX: 140, bankLooted: false, harborPackage: false,
+    unlockedStage: 0, currentStage: 0, checkpointStage: 0, stageGoals: [false, false, false, false],
     keys: {}, shootCooldown: 0, interactCooldown: 0, invuln: 0, wanted: 1,
     color: `hsl(${Math.floor(Math.random() * 360)} 80% 60%)`, respawn: 0,
     message: 'Bleib in Bewegung!'
@@ -155,8 +181,9 @@ function broadcast(payload) {
 
 function spawnPolice(target) {
   const side = Math.random() < 0.5 ? -1 : 1;
+  const stage = stageIndexAt(target.x), stageStart = stage * STAGE_WIDTH + 20, stageEnd = (stage + 1) * STAGE_WIDTH - 20;
   police.push({
-    id: `c${nextId++}`, x: clamp(target.x + side * (620 + Math.random() * 260), 20, WORLD_WIDTH - 20),
+    id: `c${nextId++}`, x: clamp(target.x + side * (620 + Math.random() * 260), stageStart, stageEnd),
     y: GROUND_Y - 58, width: 32, height: 58, health: 60, dir: -side,
     targetId: target.id, shootCooldown: 40 + Math.random() * 50, flash: 0
   });
@@ -164,6 +191,21 @@ function spawnPolice(target) {
 
 function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 function near(a, b, distance) { return Math.abs(a.x - b.x) < distance; }
+function stageIndexAt(x) { return clamp(Math.floor(x / STAGE_WIDTH), 0, STAGES.length - 1); }
+
+function completeStage(player, stageIndex) {
+  if (player.stageGoals[stageIndex]) return false;
+  player.stageGoals[stageIndex] = true;
+  player.unlockedStage = Math.max(player.unlockedStage, Math.min(stageIndex + 1, STAGES.length - 1));
+  send(player.ws, {
+    type: 'stageUnlocked',
+    completed: stageIndex,
+    unlocked: player.unlockedStage,
+    name: STAGES[player.unlockedStage].name
+  });
+  sendSfx(player, 'stage', STAGES[stageIndex].id);
+  return true;
+}
 
 function interact(p) {
   if (p.interactCooldown > 0 || p.respawn > 0) return;
@@ -177,9 +219,10 @@ function interact(p) {
     }
     if (current.type === 'bank') {
       if (p.interiorX < 190) {
+        const completed = p.bankLooted && completeStage(p, 0);
         p.inside = null; p.hidden = false; p.hiddenIn = null;
         p.x = current.x + current.w / 2; p.wanted = clamp(p.wanted + (p.bankLooted ? 1 : 0), 1, 5);
-        p.message = 'Du hast die Bank verlassen.';
+        p.message = completed ? 'STAGE 2 FREIGESCHALTET: Flieh aufs Land!' : 'Du hast die Bank verlassen.';
         if (p.bankLooted) for (let i = 0; i < Math.min(3, p.wanted); i++) spawnPolice(p);
       } else if (p.interiorX > 790) {
         if (p.bankLooted) p.message = 'Der Tresor ist bereits leer. Zurück zum Ausgang!';
@@ -209,6 +252,30 @@ function interact(p) {
       p.inside = building.id; p.hidden = true; p.hiddenIn = building.id;
       p.interiorX = 140; p.bankLooted = false; p.vx = 0;
       p.message = 'In der Bank: Lauf nach rechts zum Tresor und drücke E.';
+    } else if (building.type === 'barn') {
+      if (completeStage(p, 1)) {
+        p.loot += 2; p.wanted = clamp(p.wanted + 1, 1, 5);
+        p.message = 'Route in der Scheune gefunden, 2 Säcke Beute! STAGE 3 FREIGESCHALTET.';
+      } else p.message = 'Die Scheune ist leer. Die Route zur Küste ist bereits bekannt.';
+    } else if (building.type === 'beachbar') {
+      if (completeStage(p, 2)) {
+        p.health = Math.min(100, p.health + 30); p.cash += 400;
+        p.message = 'Kontakt getroffen: Hafenpass und $400! STAGE 4 FREIGESCHALTET.';
+      } else p.message = 'Der Beachbar-Kontakt hat dir bereits den Hafenpass gegeben.';
+    } else if (building.type === 'container') {
+      if (!p.harborPackage) {
+        p.harborPackage = true; p.wanted = 5;
+        p.message = 'Schmuggelware übernommen! Bring sie zur Rotlicht-Kneipe „Rote Laterne“.';
+        sendSfx(p, 'pickup', 'contraband');
+        for (let i = 0; i < 3; i++) spawnPolice(p);
+      } else p.message = 'Du trägst die Schmuggelware bereits. Ziel: Rote Laterne.';
+    } else if (building.type === 'pub') {
+      if (!p.harborPackage) p.message = 'Der Wirt wartet auf die Ware aus dem Containerterminal.';
+      else {
+        p.harborPackage = false; p.cash += 1600; p.wanted = 2;
+        const completed = completeStage(p, 3);
+        p.message = completed ? 'SCHMUGGEL ABGESCHLOSSEN! Alle 4 Stages gemeistert – $1600.' : 'Lieferung abgeschlossen – $1600.';
+      }
     } else {
       p.hidden = true;
       p.hiddenIn = building.id;
@@ -279,7 +346,7 @@ function buildBarricade(p) {
 
 wss.on('connection', ws => {
   let player = null;
-  send(ws, { type: 'hello', worldWidth: WORLD_WIDTH, groundY: GROUND_Y, buildings, vendors });
+  send(ws, { type: 'hello', worldWidth: WORLD_WIDTH, groundY: GROUND_Y, stageWidth: STAGE_WIDTH, stages: STAGES, buildings, vendors });
 
   ws.on('message', raw => {
     let msg;
@@ -291,6 +358,10 @@ wss.on('connection', ws => {
       broadcast({ type: 'notice', text: `${player.name} ist der Jagd beigetreten.` });
     } else if (msg.type === 'input' && player) {
       player.keys = msg.keys && typeof msg.keys === 'object' ? msg.keys : {};
+      if (process.env.NODE_ENV === 'test' && msg.action === 'testPosition') {
+        if (Number.isFinite(msg.x)) player.x = clamp(msg.x, 12, WORLD_WIDTH - 12);
+        if (Number.isFinite(msg.interiorX)) player.interiorX = clamp(msg.interiorX, 75, 925);
+      }
       if (msg.action === 'shoot') fire(player);
       if (msg.action === 'interact') interact(player);
       if (msg.action === 'switchWeapon') switchWeapon(player, msg.weapon);
@@ -310,7 +381,7 @@ function updatePlayer(p) {
   if (p.respawn > 0) {
     p.respawn--;
     if (p.respawn === 0) {
-      p.x = 180; p.y = GROUND_Y - p.height; p.health = 100; p.armor = 0; p.loot = 0;
+      p.x = p.checkpointStage * STAGE_WIDTH + 180; p.y = GROUND_Y - p.height; p.health = 100; p.armor = 0; p.loot = 0; p.harborPackage = false;
       p.wanted = 1; p.message = 'Zurück im Rennen – die Beute ist verloren.';
     }
     return;
@@ -333,7 +404,16 @@ function updatePlayer(p) {
   if (p.keys.right) { p.vx = speed; p.dir = 1; }
   if (p.keys.jump && p.y >= GROUND_Y - p.height - 1) p.vy = -12.5;
   p.vy += 0.68;
-  p.x = clamp(p.x + p.vx, 12, WORLD_WIDTH - 12);
+  const maximumX = p.unlockedStage >= STAGES.length - 1 ? WORLD_WIDTH - 12 : (p.unlockedStage + 1) * STAGE_WIDTH - 55;
+  p.x = clamp(p.x + p.vx, 12, maximumX);
+  const nextStage = stageIndexAt(p.x);
+  if (nextStage !== p.currentStage) {
+    p.currentStage = nextStage; p.checkpointStage = Math.max(p.checkpointStage, nextStage);
+    p.message = `STAGE ${nextStage + 1}: ${STAGES[nextStage].name} – ${STAGES[nextStage].objective}`;
+    sendSfx(p, 'stage', STAGES[nextStage].id);
+  } else if (p.keys.right && p.x >= maximumX - 2 && p.unlockedStage < STAGES.length - 1) {
+    p.message = `Übergang gesperrt: ${STAGES[p.unlockedStage].objective}`;
+  }
   p.y += p.vy;
   if (p.y > GROUND_Y - p.height) { p.y = GROUND_Y - p.height; p.vy = 0; }
 }
@@ -414,6 +494,28 @@ function updateWorldItems() {
       }
     }
   }
+  for (const item of stageItems) {
+    if (!item.active) {
+      if (--item.respawn <= 0) item.active = true;
+      continue;
+    }
+    for (const p of players.values()) {
+      if (p.hidden || p.inside || p.respawn || Math.abs(p.x - item.x) >= 42) continue;
+      if (item.type === 'medkit' && p.health >= 100) continue;
+      if (item.type === 'medkit') {
+        p.health = Math.min(100, p.health + 35); p.message = 'Medkit: Gesundheit +35.';
+      } else if (item.type === 'kit') {
+        p.barricadeKits += 2; p.message = 'Werkzeugkiste: 2 Barrikaden-Bausätze.';
+      } else if (item.type === 'cash') {
+        p.cash += 250; p.message = 'Wertvoller Fund: $250.';
+      } else if (item.type === 'contraband') {
+        p.loot += 1; p.wanted = clamp(p.wanted + 1, 1, 5); p.message = 'Schmuggelpaket gefunden: 1 Beute.';
+      }
+      item.active = false; item.respawn = 2000;
+      sendSfx(p, 'pickup', item.type);
+      break;
+    }
+  }
   for (let i = barricades.length - 1; i >= 0; i--) {
     if (--barricades[i].life <= 0 || barricades[i].health <= 0) barricades.splice(i, 1);
   }
@@ -433,7 +535,7 @@ setInterval(() => {
   broadcast({
     type: 'state',
     players: [...players.values()].map(publicPlayer),
-    police: police.map(c => ({ ...c })), bullets, barricades, armorPickups, highscores: publicHighscores()
+    police: police.map(c => ({ ...c })), bullets, barricades, armorPickups, stageItems, highscores: publicHighscores()
   });
 }, 1000 / 50);
 

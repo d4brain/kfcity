@@ -19,14 +19,29 @@ const kitsEl = document.querySelector('#kits');
 const noticeEl = document.querySelector('#notice');
 const highscorePanel = document.querySelector('#highscorePanel');
 const highscoreList = document.querySelector('#highscoreList');
+const stageNumberEl = document.querySelector('#stageNumber');
+const stageNameEl = document.querySelector('#stageName');
+const stageObjectiveEl = document.querySelector('#stageObjective');
+const stageDotsEl = document.querySelector('#stageDots');
+const stageBanner = document.querySelector('#stageBanner');
+const stageBannerName = document.querySelector('#stageBannerName');
 
-let socket, myId, worldWidth = 7200, groundY = 520, scale = 1;
-let buildings = [], vendors = [], state = { players: [], police: [], bullets: [], barricades: [], armorPickups: [], highscores: [] };
-let cameraX = 0, lastMessage = '', noticeTimer = 0;
+let socket, myId, worldWidth = 20000, groundY = 520, stageWidth = 5000, scale = 1;
+let stages = [
+  { id: 'city', name: 'STADT', objective: 'Raube die City Bank aus und verlasse sie.' },
+  { id: 'country', name: 'LAND', objective: 'Durchsuche die Scheune.' },
+  { id: 'coast', name: 'KÜSTENVORSTADT', objective: 'Triff den Kontakt in der Beachbar.' },
+  { id: 'harbor', name: 'HAFEN', objective: 'Schmuggelware zur Rotlicht-Kneipe bringen.' }
+];
+let buildings = [], vendors = [], state = { players: [], police: [], bullets: [], barricades: [], armorPickups: [], stageItems: [], highscores: [] };
+let cameraX = 0, lastMessage = '', noticeTimer = 0, stageBannerTimer = 0;
 let highscoreOpen = false;
 const keys = { left: false, right: false, jump: false, shift: false };
 const assets = {
   city: loadImage('/assets/city-background.png?v=1.6'),
+  country: loadImage('/assets/land-background.png?v=4.0'),
+  coast: loadImage('/assets/coast-background.png?v=4.0'),
+  harbor: loadImage('/assets/harbor-background.png?v=4.0'),
   bank: loadImage('/assets/bank-interior.png?v=1.6'),
   runner: loadImage('/assets/runner-sprites.png?v=1.6'),
   police: loadImage('/assets/police-sprites.png?v=1.6'),
@@ -133,6 +148,10 @@ function playSfx(kind, detail = '', pan = 0) {
     tone(290, .45, .2, { type: 'sawtooth', endFrequency: 48 }); noise(.32, .24, 360, { filter: 'lowpass' });
   } else if (kind === 'weapon') {
     tone(330, .07, .08, { type: 'square' }); tone(500, .1, .09, { type: 'square', delay: .06 });
+  } else if (kind === 'stage') {
+    tone(220, .22, .16, { type: 'sawtooth', endFrequency: 440 });
+    tone(440, .28, .18, { type: 'triangle', endFrequency: 880, delay: .18 });
+    tone(880, .42, .16, { delay: .4 });
   } else {
     tone(620, .055, .06, { type: 'triangle', endFrequency: 480 });
   }
@@ -204,9 +223,13 @@ function connect(name) {
   socket.addEventListener('open', () => { socket.send(JSON.stringify({ type: 'join', name })); statusEl.textContent = '● LIVE'; statusEl.classList.add('online'); });
   socket.addEventListener('message', event => {
     const msg = JSON.parse(event.data);
-    if (msg.type === 'hello') { worldWidth = msg.worldWidth; groundY = msg.groundY; buildings = msg.buildings; vendors = msg.vendors; }
+    if (msg.type === 'hello') { worldWidth = msg.worldWidth; groundY = msg.groundY; stageWidth = msg.stageWidth || 5000; stages = msg.stages || stages; buildings = msg.buildings; vendors = msg.vendors; }
     if (msg.type === 'joined') { myId = msg.id; login.style.display = 'none'; hud.style.display = 'block'; unlockAudio(); }
     if (msg.type === 'sfx') playSfx(msg.name, msg.detail || '', msg.pan || 0);
+    if (msg.type === 'stageUnlocked') {
+      stageBannerName.textContent = msg.completed >= 3 ? 'ALLE STAGES GESCHAFFT' : `STAGE ${msg.unlocked + 1}: ${msg.name}`;
+      stageBanner.classList.add('show'); stageBannerTimer = 210;
+    }
     if (msg.type === 'state') { processAudioState(msg); state = msg; updateHud(); }
     if (msg.type === 'notice') { noticeEl.textContent = msg.text; noticeTimer = 220; }
   });
@@ -279,6 +302,14 @@ function updateHud() {
   scoreEl.textContent = me.score.toLocaleString('de-CH');
   weaponNameEl.textContent = WEAPON_LABELS[me.activeWeapon] || me.activeWeapon;
   kitsEl.textContent = me.barricadeKits;
+  const stageIndex = Math.max(0, Math.min(stages.length - 1, me.currentStage || 0));
+  stageNumberEl.textContent = `STAGE ${stageIndex + 1}/${stages.length}`;
+  stageNameEl.textContent = stages[stageIndex]?.name || '';
+  stageObjectiveEl.textContent = me.stageGoals?.[stageIndex] ? 'Ziel abgeschlossen – weiter nach rechts!' : stages[stageIndex]?.objective || '';
+  [...stageDotsEl.children].forEach((dot, index) => {
+    dot.classList.toggle('done', Boolean(me.stageGoals?.[index]));
+    dot.classList.toggle('current', index === stageIndex);
+  });
   if (highscoreOpen) renderHighscores();
   if (me.message !== lastMessage) { messageEl.textContent = me.message; lastMessage = me.message; }
 }
@@ -300,14 +331,18 @@ function renderHighscores(){
 }
 
 function sx(x) { return x - cameraX; }
+function stageIndexAt(x) { return Math.max(0, Math.min(stages.length - 1, Math.floor(x / stageWidth))); }
 function rect(x,y,w,h,color) { ctx.fillStyle=color; ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h)); }
 function text(value,x,y,size,color='#fff',align='left') { ctx.fillStyle=color;ctx.font=`800 ${size}px Barlow Condensed, sans-serif`;ctx.textAlign=align;ctx.fillText(value,x,y); }
 
 function drawSky(w,h) {
-  if (assets.city.complete && assets.city.naturalWidth) {
-    const imageW = h * assets.city.naturalWidth / assets.city.naturalHeight;
-    const offset = -((cameraX * .16) % imageW);
-    for (let x = offset - imageW; x < w + imageW; x += imageW) ctx.drawImage(assets.city, x, 0, imageW, h);
+  const stageIndex = stageIndexAt(cameraX + w * .38), stage = stages[stageIndex] || stages[0];
+  const image = assets[stage.id] || assets.city;
+  if (image.complete && image.naturalWidth) {
+    const imageW = h * image.naturalWidth / image.naturalHeight;
+    const localCamera = cameraX - stageIndex * stageWidth;
+    const offset = -((localCamera * .16) % imageW);
+    for (let x = offset - imageW; x < w + imageW; x += imageW) ctx.drawImage(image, x, 0, imageW, h);
     const shade=ctx.createLinearGradient(0,0,0,h);shade.addColorStop(0,'#07101e33');shade.addColorStop(.7,'#09101b11');shade.addColorStop(1,'#07090eaa');ctx.fillStyle=shade;ctx.fillRect(0,0,w,h);
     return;
   }
@@ -318,19 +353,32 @@ function drawSky(w,h) {
 }
 
 function drawStreet(w,h,baseY) {
-  rect(0,baseY,w,h-baseY,'#11141b');rect(0,baseY-18,w,18,'#c7c1ae');rect(0,baseY+92,w,4,'#343944');
+  const stage = stageIndexAt(cameraX + w * .38);
+  const road = ['#11141b','#2d241b','#2a2830','#121820'][stage] || '#11141b';
+  const curb = ['#c7c1ae','#a48258','#d8c5af','#667584'][stage] || '#c7c1ae';
+  rect(0,baseY,w,h-baseY,road);rect(0,baseY-18,w,18,curb);rect(0,baseY+92,w,4,stage===3?'#d7ff32':'#343944');
   for(let x=-(cameraX%170);x<w;x+=170)rect(x,baseY+88,90,7,'#d8d095');
-  for(let x=-(cameraX%520);x<w;x+=520){rect(x,baseY-210,7,192,'#242b37');rect(x-12,baseY-217,31,14,'#ffd04d');}
+  if(stage!==1)for(let x=-(cameraX%520);x<w;x+=520){rect(x,baseY-210,7,192,'#242b37');rect(x-12,baseY-217,31,14,stage===3?'#52e8ff':'#ffd04d');}
 }
 
 function drawBuilding(b, baseY) {
   const x=sx(b.x); if(x>canvas.width/scale+100||x+b.w< -100)return;
-  const bank=b.type==='bank', bh=bank?255:210;
-  rect(x,baseY-bh,b.w,bh-18,bank?'#252b39':'#303344');rect(x+8,baseY-bh+8,b.w-16,10,bank?'#d7ff32':'#43e5ff');
-  for(let wx=x+25;wx<x+b.w-30;wx+=68){rect(wx,baseY-bh+48,38,47,'#111722');rect(wx+5,baseY-bh+53,28,37,'#62708b');}
+  const style={
+    bank:['#252b39','#d7ff32',255,'[ E ] BANK AUSRAUBEN'],
+    barn:['#503421','#ffb052',230,'[ E ] SCHEUNE DURCHSUCHEN'],
+    beachbar:['#174754','#ff5e9e',205,'[ E ] KONTAKT TREFFEN'],
+    container:['#263746','#ff9b42',220,'[ E ] WARE ÜBERNEHMEN'],
+    pub:['#2b1828','#ff386b',220,'[ E ] WARE ABLIEFERN'],
+    hideout:['#303344','#43e5ff',210,'[ E ] VERSTECKEN']
+  }[b.type]||['#303344','#43e5ff',210,'[ E ] BENUTZEN'];
+  const [wall,accent,bh,action]=style;
+  rect(x,baseY-bh,b.w,bh-18,wall);rect(x+8,baseY-bh+8,b.w-16,10,accent);
+  for(let wx=x+25;wx<x+b.w-30;wx+=68){rect(wx,baseY-bh+48,38,47,'#111722');rect(wx+5,baseY-bh+53,28,37,b.type==='pub'?'#b62b75':'#62708b');}
+  if(b.type==='barn'){ctx.fillStyle='#382214';ctx.beginPath();ctx.moveTo(x-12,baseY-bh);ctx.lineTo(x+b.w/2,baseY-bh-70);ctx.lineTo(x+b.w+12,baseY-bh);ctx.closePath();ctx.fill();}
+  if(b.type==='container')for(let cy=baseY-bh+30;cy<baseY-28;cy+=28)rect(x+13,cy,b.w-26,4,'#50687a');
   rect(x+b.w/2-43,baseY-99,86,81,'#0c1018');rect(x+b.w/2-35,baseY-91,31,73,'#28334b');rect(x+b.w/2+4,baseY-91,31,73,'#28334b');
-  text(b.label,x+b.w/2,baseY-bh+33,bank?26:22,bank?'#d7ff32':'#fff','center');
-  text(bank?'[ E ] BANK AUSRAUBEN':'[ E ] VERSTECKEN',x+b.w/2,baseY-112,15,'#fff','center');
+  text(b.label,x+b.w/2,baseY-bh+33,b.type==='bank'?26:22,accent,'center');
+  text(action,x+b.w/2,baseY-112,15,'#fff','center');
 }
 
 function drawVendor(v,baseY){const x=sx(v.x);if(x<-100||x>canvas.width/scale+100)return;rect(x-48,baseY-72,96,55,'#693f27');rect(x-62,baseY-86,124,18,'#d74b5e');rect(x-8,baseY-123,16,37,'#ffce45');text('$',x,baseY-96,23,'#12151c','center');text('[ E ] HANDELN',x,baseY-135,15,'#d7ff32','center');text(v.label,x,baseY-147,12,'#fff','center');}
@@ -380,6 +428,27 @@ function drawArmorPickup(item,baseY){
   ctx.save();ctx.translate(x,ground-34+bob);ctx.shadowColor='#43e5ff';ctx.shadowBlur=18;rect(-20,-18,40,36,'#173c5b');ctx.shadowBlur=0;ctx.strokeStyle='#66eaff';ctx.lineWidth=2;ctx.strokeRect(-20,-18,40,36);ctx.fillStyle='#9cf4ff';ctx.beginPath();ctx.moveTo(0,-12);ctx.lineTo(12,-7);ctx.lineTo(9,8);ctx.lineTo(0,14);ctx.lineTo(-9,8);ctx.lineTo(-12,-7);ctx.closePath();ctx.fill();ctx.restore();text('ARMOR',x,ground-62+bob,12,'#72ebff','center');
 }
 
+const ITEM_STYLE={
+  cash:{color:'#d7ff32',symbol:'$',glow:'#d7ff32'},
+  medkit:{color:'#ff526f',symbol:'+',glow:'#ff385d'},
+  kit:{color:'#ffad52',symbol:'⚒',glow:'#ff9b42'},
+  contraband:{color:'#b57cff',symbol:'◆',glow:'#a765ff'}
+};
+function drawStageItem(item,baseY){
+  if(!item.active)return;const x=sx(item.x),ground=baseY+CHARACTER_GROUND_OFFSET;if(x<-60||x>canvas.width/scale+60)return;
+  const style=ITEM_STYLE[item.type]||ITEM_STYLE.cash,bob=Math.sin(performance.now()/230+item.x)*5;
+  ctx.save();ctx.translate(x,ground-34+bob);ctx.shadowColor=style.glow;ctx.shadowBlur=22;rect(-22,-19,44,38,'#111722');ctx.shadowBlur=0;ctx.strokeStyle=style.color;ctx.lineWidth=2;ctx.strokeRect(-22,-19,44,38);text(style.symbol,0,10,27,style.color,'center');ctx.restore();
+  text(item.label,x,ground-64+bob,11,style.color,'center');
+}
+
+function drawStageGate(index,baseY,me){
+  const x=sx(index*stageWidth);if(x<-120||x>canvas.width/scale+120)return;
+  const locked=(me?.unlockedStage||0)<index,color=locked?'#ff385d':'#d7ff32';
+  ctx.save();ctx.globalAlpha=locked ? .92 : .48;rect(x-52,baseY-245,16,245,'#1b202a');rect(x+36,baseY-245,16,245,'#1b202a');rect(x-52,baseY-245,104,18,color);ctx.restore();
+  text(locked?'ZIEL NOCH OFFEN':`STAGE ${index+1}`,x,baseY-260,18,color,'center');
+  if(locked){ctx.save();ctx.globalAlpha=.25;rect(x-36,baseY-227,72,227,'#ff385d');ctx.restore();text('✕',x,baseY-120,40,'#ff8ba0','center');}
+}
+
 function drawBarricade(wall,baseY){
   const x=sx(wall.x),ground=baseY+CHARACTER_GROUND_OFFSET;if(x<-90||x>canvas.width/scale+90)return;
   drawGroundShadow(x,ground,43,.55);ctx.save();ctx.translate(x,ground);ctx.fillStyle='#161b24';ctx.fillRect(-43,-82,86,82);ctx.strokeStyle='#778398';ctx.lineWidth=3;ctx.strokeRect(-43,-82,86,82);
@@ -394,12 +463,14 @@ function render() {
   const baseY=Math.min(h-58,Math.max(300,h*.81));
   if(me?.inside){drawBankInterior(w,h,baseY,me);requestAnimationFrame(render);return;}
   drawSky(w,h);drawStreet(w,h,baseY);
+  for(let index=1;index<stages.length;index++)drawStageGate(index,baseY,me);
   for(const b of buildings)drawBuilding(b,baseY);for(const v of vendors)drawVendor(v,baseY);
-  for(const item of state.armorPickups||[])drawArmorPickup(item,baseY);for(const wall of state.barricades||[])drawBarricade(wall,baseY);
+  for(const item of state.armorPickups||[])drawArmorPickup(item,baseY);for(const item of state.stageItems||[])drawStageItem(item,baseY);for(const wall of state.barricades||[])drawBarricade(wall,baseY);
   for(const b of state.bullets)drawBullet(b,baseY);for(const c of state.police)drawCop(c,baseY);for(const p of state.players)drawPerson(p,baseY,p.id===myId);
   const markerSpacing=1000;for(let x=markerSpacing;x<worldWidth;x+=markerSpacing){const px=sx(x);if(px>0&&px<w)text(`${x/1000} KM`,px,baseY+35,12,'#6c7588','center');}
   if(me?.hidden){ctx.fillStyle='#05070bbb';ctx.fillRect(0,0,w,h);text('VERSCHANZT',w/2,h/2-10,48,'#d7ff32','center');text('E DRÜCKEN, UM DAS GEBÄUDE ZU VERLASSEN',w/2,h/2+28,16,'#fff','center');}
   if(noticeTimer>0){noticeTimer--;noticeEl.style.opacity=Math.min(1,noticeTimer/30);}else noticeEl.textContent='';
+  if(stageBannerTimer>0){stageBannerTimer--;if(stageBannerTimer===0)stageBanner.classList.remove('show');}
   requestAnimationFrame(render);
 }
 function drawBankInterior(w,h,baseY,me){

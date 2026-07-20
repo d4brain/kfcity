@@ -2,6 +2,28 @@
 
 Fiktiver 2D-Multiplayer-Siderunner für Node.js und HTML5.
 
+## Vier Stages und Fortschritt
+
+Die Spielwelt besteht jetzt aus vier aufeinanderfolgenden Bereichen mit jeweils eigenem, hochauflösendem Hintergrund. Der Übergang rechts bleibt gesperrt, bis das Ziel der aktuellen Stage erfüllt wurde.
+
+| Stage | Umgebung | Zielbereich und Aufgabe |
+| --- | --- | --- |
+| 1 | Stadt | City Bank ausrauben und mit der Beute verlassen |
+| 2 | Land | Alte Scheune durchsuchen und die Schmugglerroute finden |
+| 3 | Küstenvorstadt | Durch Villen und Tennisplätze zur Beachbar laufen und den Kontakt treffen |
+| 4 | Hafen | Schmuggelware am Containerterminal übernehmen und in der Rotlicht-Kneipe „Rote Laterne“ abliefern |
+
+Der Fortschrittsbalken zeigt Stage, Ziel, abgeschlossene Bereiche und den nächsten Übergang. Nach dem Tod startet der Spieler am Anfang der zuletzt erreichten Stage.
+
+### Stage-Items
+
+- Armor-Kisten geben Rüstung und einen Barrikaden-Bausatz.
+- Medkits stellen 35 Gesundheit wieder her.
+- Werkzeugkisten enthalten zwei Barrikaden-Bausätze.
+- Geldkoffer, Farmkassen, Sporttaschen und Hafenkassen geben Bargeld.
+- Schmuggelpakete im Hafen erhöhen Beute und Fahndungsstufe.
+- Alle Items erscheinen nach einer Wartezeit erneut und funktionieren serverseitig im Multiplayer.
+
 ## Start
 
 ```bash
