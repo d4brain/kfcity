@@ -24,7 +24,7 @@ const server = tlsKey && tlsCert
   ? https.createServer({ key: fs.readFileSync(tlsKey), cert: fs.readFileSync(tlsCert) }, app)
   : http.createServer(app);
 const wss = new WebSocketServer({ server });
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 31400;
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (_req, res) => res.json({ ok: true, players: players.size }));
