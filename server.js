@@ -43,6 +43,7 @@ const WEAPONS = {
   shotgun: { label: 'Schrotflinte', cooldown: 30, damage: 18, speed: 13, life: 38, pellets: 5, spread: 4.5 },
   pulse:   { label: 'Impulswerfer', cooldown: 22, damage: 48, speed: 11, life: 85, pellets: 1, spread: 0 }
 };
+const SCORE_BY_WEAPON = { pistol: 75, smg: 100, shotgun: 150, pulse: 250 };
 const WEAPON_SHOP = [
   { id: 'smg', price: 600 },
   { id: 'shotgun', price: 1200 },
@@ -51,6 +52,55 @@ const WEAPON_SHOP = [
 const armorPickups = [680, 1960, 2860, 4040, 4920, 6120, 6980].map((x, index) => ({
   id: `armor-${index + 1}`, x, active: true, respawn: 0
 }));
+
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
+const HIGHSCORE_FILE = path.join(DATA_DIR, 'highscores.json');
+let highscoreRecords = [];
+
+function loadHighscores() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(HIGHSCORE_FILE)) return;
+    const parsed = JSON.parse(fs.readFileSync(HIGHSCORE_FILE, 'utf8'));
+    const rows = Array.isArray(parsed) ? parsed : parsed.highscores;
+    if (!Array.isArray(rows)) return;
+    highscoreRecords = rows.filter(row => row && typeof row.name === 'string' && Number.isFinite(row.score))
+      .map(row => ({ name: cleanName(row.name), score: Math.max(0, Math.floor(row.score)), updatedAt: row.updatedAt || null }))
+      .sort((a, b) => b.score - a.score).slice(0, 100);
+  } catch (error) {
+    console.error('Highscore konnte nicht geladen werden:', error.message);
+    highscoreRecords = [];
+  }
+}
+
+function saveHighscores() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const temporary = `${HIGHSCORE_FILE}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify({ version: 1, highscores: highscoreRecords }, null, 2));
+    fs.renameSync(temporary, HIGHSCORE_FILE);
+  } catch (error) {
+    console.error('Highscore konnte nicht gespeichert werden:', error.message);
+  }
+}
+
+function updateHighscore(player) {
+  const key = player.name.toLocaleLowerCase('de-CH');
+  const existing = highscoreRecords.find(row => row.name.toLocaleLowerCase('de-CH') === key);
+  if (existing && existing.score >= player.score) return;
+  if (existing) {
+    existing.name = player.name; existing.score = player.score; existing.updatedAt = new Date().toISOString();
+  } else highscoreRecords.push({ name: player.name, score: player.score, updatedAt: new Date().toISOString() });
+  highscoreRecords.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'de-CH'));
+  highscoreRecords = highscoreRecords.slice(0, 100);
+  saveHighscores();
+}
+
+function publicHighscores() {
+  return highscoreRecords.slice(0, 10).map(({ name, score }) => ({ name, score }));
+}
+
+loadHighscores();
 
 const buildings = [
   { id: 'safe-1', type: 'hideout', x: 530, w: 300, label: 'Waschsalon' },
@@ -131,7 +181,7 @@ function interact(p) {
         if (p.bankLooted) p.message = 'Der Tresor ist bereits leer. Zurück zum Ausgang!';
         else {
           const amount = 2 + Math.floor(Math.random() * 3);
-          p.loot += amount; p.bankLooted = true; p.score += amount * 100;
+          p.loot += amount; p.bankLooted = true;
           p.message = `${amount} Beutesäcke aus dem Tresor! Lauf links zum Ausgang.`;
         }
       } else p.message = 'Der Tresor ist rechts – der Ausgang links.';
@@ -169,7 +219,6 @@ function interact(p) {
     if (p.loot > 0) {
       const earned = p.loot * 250;
       p.cash += earned;
-      p.score += earned;
       p.message = `${p.loot} Beutesack${p.loot > 1 ? 'säcke' : ''} für $${earned} verkauft!`;
       p.loot = 0;
       p.wanted = Math.max(1, p.wanted - 1);
@@ -246,6 +295,7 @@ wss.on('connection', ws => {
 
   ws.on('close', () => {
     if (!player) return;
+    updateHighscore(player);
     players.delete(player.id);
     broadcast({ type: 'notice', text: `${player.name} hat die Stadt verlassen.` });
   });
@@ -327,7 +377,14 @@ function updateBullets() {
         if (Math.abs(b.x - c.x) < 25 && Math.abs(b.y - (c.y + 28)) < 36) {
           c.health -= b.damage || 30; c.flash = 5; hit = true;
           const owner = players.get(b.owner);
-          if (c.health <= 0) { police.splice(j, 1); if (owner) { owner.score += 75; owner.message = 'Verfolger abgehängt: +75 Punkte'; } }
+          if (c.health <= 0) {
+            police.splice(j, 1);
+            if (owner) {
+              const reward = SCORE_BY_WEAPON[b.weapon] || SCORE_BY_WEAPON.pistol;
+              owner.score += reward; owner.message = `${WEAPONS[b.weapon]?.label || 'Waffe'}: Gegner ausgeschaltet – +${reward} Punkte!`;
+              updateHighscore(owner);
+            }
+          }
           break;
         }
       }
@@ -370,7 +427,7 @@ setInterval(() => {
   broadcast({
     type: 'state',
     players: [...players.values()].map(publicPlayer),
-    police: police.map(c => ({ ...c })), bullets, barricades, armorPickups
+    police: police.map(c => ({ ...c })), bullets, barricades, armorPickups, highscores: publicHighscores()
   });
 }, 1000 / 50);
 

@@ -13,13 +13,17 @@ const armorValue = document.querySelector('#armorValue');
 const cashEl = document.querySelector('#cash');
 const lootEl = document.querySelector('#loot');
 const wantedEl = document.querySelector('#wanted');
+const scoreEl = document.querySelector('#score');
 const weaponNameEl = document.querySelector('#weaponName');
 const kitsEl = document.querySelector('#kits');
 const noticeEl = document.querySelector('#notice');
+const highscorePanel = document.querySelector('#highscorePanel');
+const highscoreList = document.querySelector('#highscoreList');
 
 let socket, myId, worldWidth = 7200, groundY = 520, scale = 1;
-let buildings = [], vendors = [], state = { players: [], police: [], bullets: [], barricades: [], armorPickups: [] };
+let buildings = [], vendors = [], state = { players: [], police: [], bullets: [], barricades: [], armorPickups: [], highscores: [] };
 let cameraX = 0, lastMessage = '', noticeTimer = 0;
+let highscoreOpen = false;
 const keys = { left: false, right: false, jump: false, shift: false };
 const assets = {
   city: loadImage('/assets/city-background.png?v=1.6'),
@@ -65,11 +69,12 @@ function setKey(code, down) {
   if (['ShiftLeft','ShiftRight'].includes(code)) keys.shift = down;
 }
 addEventListener('keydown', e => {
-  if (['ArrowLeft','ArrowRight','ArrowUp','Space'].includes(e.code)) e.preventDefault();
+  if (['ArrowLeft','ArrowRight','ArrowUp','Space','Tab'].includes(e.code)) e.preventDefault();
   if (!e.repeat && e.code === 'Space') send('shoot');
   if (!e.repeat && e.code === 'KeyE') send('interact');
   if (!e.repeat && e.code === 'KeyQ') send('switchWeapon');
   if (!e.repeat && e.code === 'KeyB') send('build');
+  if (!e.repeat && ['KeyH','Tab'].includes(e.code)) toggleHighscore();
   const weaponKeys={Digit1:'pistol',Digit2:'smg',Digit3:'shotgun',Digit4:'pulse'};
   if (!e.repeat && weaponKeys[e.code]) send('switchWeapon',{weapon:weaponKeys[e.code]});
   setKey(e.code, true); send();
@@ -107,6 +112,7 @@ function actionButton(id,action,holdKey){
   button.addEventListener('pointerup',release);button.addEventListener('pointercancel',release);
 }
 actionButton('#btnFire','shoot');actionButton('#btnJump',null,'jump');actionButton('#btnAction','interact');actionButton('#btnWeapon','switchWeapon');actionButton('#btnBuild','build');
+document.querySelector('#btnScore').addEventListener('pointerdown',event=>{event.preventDefault();toggleHighscore();});
 
 const WEAPON_LABELS={pistol:'PISTOLE',smg:'MP',shotgun:'SCHROT',pulse:'IMPULS'};
 
@@ -116,9 +122,27 @@ function updateHud() {
   armorFill.style.width = `${me.armor}%`; armorValue.textContent = me.armor;
   cashEl.textContent = `$${me.cash.toLocaleString('de-CH')}`; lootEl.textContent = me.loot;
   wantedEl.textContent = '★'.repeat(me.wanted) + '☆'.repeat(5 - me.wanted);
+  scoreEl.textContent = me.score.toLocaleString('de-CH');
   weaponNameEl.textContent = WEAPON_LABELS[me.activeWeapon] || me.activeWeapon;
   kitsEl.textContent = me.barricadeKits;
+  if (highscoreOpen) renderHighscores();
   if (me.message !== lastMessage) { messageEl.textContent = me.message; lastMessage = me.message; }
+}
+
+function toggleHighscore(){
+  highscoreOpen=!highscoreOpen;highscorePanel.classList.toggle('open',highscoreOpen);
+  if(highscoreOpen)renderHighscores();
+}
+
+function renderHighscores(){
+  highscoreList.replaceChildren();
+  const rows=state.highscores||[];
+  if(!rows.length){const empty=document.createElement('li');empty.className='empty-score';empty.textContent='Noch keine Gegnerpunkte – hol dir Platz 1!';highscoreList.append(empty);return;}
+  rows.forEach((row,index)=>{
+    const li=document.createElement('li'),rank=document.createElement('span'),name=document.createElement('strong'),points=document.createElement('b');
+    rank.textContent=`#${index+1}`;name.textContent=row.name;points.textContent=`${row.score.toLocaleString('de-CH')} PTS`;
+    li.append(rank,name,points);highscoreList.append(li);
+  });
 }
 
 function sx(x) { return x - cameraX; }

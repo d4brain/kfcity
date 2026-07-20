@@ -10,7 +10,7 @@ npm install
 npm start
 ```
 
-Dann `http://localhost:31400` öffnen. Für einen lokalen Multiplayer-Test das Spiel in zwei Browserfenstern öffnen.
+Dann `http://localhost:3000` öffnen. Für einen lokalen Multiplayer-Test das Spiel in zwei Browserfenstern öffnen.
 
 ## Steuerung
 
@@ -22,6 +22,20 @@ Dann `http://localhost:31400` öffnen. Für einen lokalen Multiplayer-Test das S
 - `Q`: verfügbare Waffen durchschalten
 - `1` bis `4`: Pistole, Maschinenpistole, Schrotflinte oder Impulswerfer wählen
 - `B`: Barrikade vor dem Spieler errichten
+- `H` oder `Tab`: Top-10-Highscore öffnen und schließen
+
+## Highscore
+
+Die Highscore wird serverseitig in `data/highscores.json` gespeichert und bleibt nach einem Neustart erhalten. Bankbeute und Verkäufe geben keine Highscore-Punkte; entscheidend sind ausgeschaltete Polizeigegner.
+
+| Waffe | Punkte pro Gegner |
+| --- | ---: |
+| Pistole | 75 |
+| Maschinenpistole | 100 |
+| Schrotflinte | 150 |
+| Impulswerfer | 250 |
+
+Auf dem Handy öffnet die Taste `SCORE` die Top 10. Über `DATA_DIR` kann optional ein anderer Speicherordner für die Highscore-Datei festgelegt werden.
 
 ## Rüstung, Waffen und Barrikaden
 
@@ -47,6 +61,7 @@ Der Port kann über die Umgebungsvariable `PORT` gesetzt werden.
 - `E AKTION`: Bank/Gebäude betreten, Tresor benutzen oder Ware verkaufen
 - `WAFFE`: verfügbare Waffen wechseln
 - `BAU`: Barrikade errichten
+- `SCORE`: Top-10-Highscore öffnen
 
 Das Layout berücksichtigt Displayausschnitte und funktioniert im Hoch- und Querformat. Querformat bietet die beste Übersicht.
 
