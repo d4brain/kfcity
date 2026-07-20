@@ -10,7 +10,7 @@ npm install
 npm start
 ```
 
-Dann `http://localhost:3000` öffnen. Für einen lokalen Multiplayer-Test das Spiel in zwei Browserfenstern öffnen.
+Dann `http://localhost:31400` öffnen. Für einen lokalen Multiplayer-Test das Spiel in zwei Browserfenstern öffnen.
 
 ## Steuerung
 
